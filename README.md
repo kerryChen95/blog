@@ -1,5 +1,5 @@
 # Tech blog of kerryChen95
 
-Published posts in <a href="##" onclick="location.assign(location.href + '/tree/master/publish'); return false;">public</a>.
+Published posts in [public](https://github.com/kerrychen95/blog/tree/master/public)
 
-Those I'm working on in <a href="##" onclick="location.assign(location.href + '/tree/master/alpha'); return false;">alpha</a>.
+Those I'm working on in [alpha](https://github.com/kerrychen95/blog/tree/master/alpha)
