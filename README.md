@@ -1,4 +1,5 @@
 # Tech blog of kerryChen95
 
-- master branch: articles published to issues.
-- alpha branch: articles still writting.
+Published posts in <a href="##" onclick="location.assign(location.href + '/tree/master/publish'); return false;">public</a>.
+
+Those I'm working on in <a href="##" onclick="location.assign(location.href + '/tree/master/alpha'); return false;">alpha</a>.
