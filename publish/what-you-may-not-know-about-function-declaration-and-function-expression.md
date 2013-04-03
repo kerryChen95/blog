@@ -32,8 +32,6 @@ function [name]([param] [, param] [..., param]) {
 }
 ```
 
-函数表达式其实是function
-
 ## 从解释器的角度看
 
 以上是两者的一些特征的描述，从解释器的角度来看：
