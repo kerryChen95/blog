@@ -296,7 +296,7 @@ function define(id, deps, factory) {
 
 如前所述，`script` 标签内的脚本执行完，会触发标签的 `load` 事件，进入之前绑定的事件回调函数。然后一步步的步入，直到进入在jsonm.html中传给 `seajs.use` 的回调函数中。调用栈如下：
 
-![call-stack-from-node.onload-for-JSONM.png](call-stack-from-node.onload-for-JSONM.png)
+![call-stack-from-node.onload-for-JSONM.png](https://raw.github.com/kerryChen95/blog/master/publish/call-stack-from-node.onload-for-JSONM.png)
 
 至于怎么获取返回的JSON数据：
 
