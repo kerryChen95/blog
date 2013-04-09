@@ -103,6 +103,7 @@ function getCurrentScript() {
 
 比想象中要快，到这一步便真像大白了： **原来是通过判断 `script` 标签的 `readyState` 属性是否为 `interactive` 来得知是哪个 `script` 标签中的脚本正在执行，进而得知 `define` 函数是在哪个 `script` 标签中被调用的，然后得知 `script` 标签的URI，也就得知JSONP请求的URI了** 。然后就可以通过这个URI，找到要使用JSON数据的回调函数 `dataHandler`（因为URI和 `dataHandler` 被一起传给了 `seajs.use` 函数，它们的关联可以建立起来）。
 
+---
 
 ## 路边的风景：所谓的“同步”加载
 
@@ -146,8 +147,193 @@ function parseDependencies(code) {
 
 这说明，一个模块的依赖，无论是通过 `define` 函数的第二个参数预先声明，还是在模块的业务逻辑代码内通过 `require` 函数来获取，都是在执行模块的业务逻辑回调函数之前，就加载依赖。
 
-Update:
+## Update:
 
 区别是：预先声明的依赖，会先执行依赖模块的业务逻辑回调函数，获取其 `exports` ，再执行本模块的业务逻辑回调函数； 而 **在调用 `require` 函数的时候，不进行网络I/O，更不会产生同步的阻塞，但依赖模块的业务逻辑回调函数是在此时才执行** ，然后获取依赖的 `exports` ，这也就体现了SeaJS的as lazy as possible理念。
 
 简要来说的话，SeaJS的“同步”并不是真正的阻塞式的同步，更多的是一种延迟吧。:smile:
+
+---
+
+## Update 2:
+
+既然在评论中提到了非IE下的方案，这里就加上这部分内容吧。（什么？微机原理半期考试？信~~号~~不~~好~~，听~~不~~见~~~~）
+
+如 `getCurrentScript` 中的注释以及注释中引用的帖子所说， `readyState` 为 `interactive` 的方案只适用于IE。帖子的部分内容如下：
+
+> In non-IE browsers, the onload event is sufficient, it always fires immediately after the script is executed.
+
+那么在非IE下的解决方案基于 `script` 标签的 `onload` 事件，这个事件会在标签内的脚本执行完之后立刻触发。
+
+那么具体是怎么实现的呢？让我们跑个[demo](https://github.com/kerryChen95/Labs/blob/master/host-server/public/201304/JSONM.html)来看看SeaJS内部的实现方式。（如果有兴趣自己运行此demo，可以将它所在的Repository下载到本地，其中有两个[Node](http://nodejs.org/)服务器，一个是宿主服务器，一个是跨域的目标服务器。两个服务器都要先用npm安装好依赖的包后，再用node跑起服务器进程，然后访问 http://localhost:3000/201304/jsonm.html 即可运行此demo）
+
+### 1. 首先看 `seajs.use` 内部做了什么。
+
+具体怎么一步步的步入就不细说了，直接看调用栈的图，感兴趣可以自己按照这个调用栈来步入：
+
+![call stack from `seajs.use` for JSONM](https://raw.github.com/kerryChen95/blog/master/publish/call-stack-from-seajs.use-for-JSONM.png)
+
+稍微解释一下，图中左列是函数名，右列是函数所在的文件，右列最右边的数字表示执行到文件中的第几行时进行调用和压栈。
+
+我们在jsonm.html文件的第10行调用 `seajs.use` 函数（也就是栈底的anonymous function），开始压栈，一直压栈到 [sea-2.0.0.js](https://github.com/kerryChen95/Labs/blob/master/host-server/public/util/sea-2.0.0.js) 文件中的 `addOnload` 函数，此时控制流停在sea-2.0.0.js文件的374行， `addOnload` 函数如下：
+
+```JavaScript
+function addOnload(node, callback, isCSS) {
+  var missingOnload = isCSS && (isOldWebKit || !("onload" in node))
+
+  // for Old WebKit and Old Firefox
+  if (missingOnload) {
+    setTimeout(function() {
+      pollCss(node, callback)
+    }, 1) // Begin after node insertion
+    return
+  }
+
+  node.onload = node.onerror = node.onreadystatechange = function() {
+    if (READY_STATE_RE.test(node.readyState)) {
+
+      // Ensure only run once and handle memory leak in IE
+      node.onload = node.onerror = node.onreadystatechange = null
+
+      // Remove the script to reduce memory leak
+      if (!isCSS && !configData.debug) {
+        head.removeChild(node)
+      }
+
+      // Dereference the node
+      node = undefined
+
+      callback()
+    }
+  }
+}
+```
+
+374行就是 `node.onload = node.onerror = node.onreadystatechange = function() {` 这行。 `node` 引用调用栈中的 `request` 函数内创建的 `script` 标签，这个标签就是用来发送JSONP请求的。有兴趣的话，可以看到 `request` 函数如下（关注到调用 `addOnload` 那一行即可）：
+
+```JavaScript
+function request(url, callback, charset) {
+  var isCSS = IS_CSS_RE.test(url)
+  var node = doc.createElement(isCSS ? "link" : "script")
+
+  if (charset) {
+    var cs = isFunction(charset) ? charset(url) : charset
+    if (cs) {
+      node.charset = cs
+    }
+  }
+
+  addOnload(node, callback, isCSS)
+```
+
+至此，我们看到SeaJS在发送JSONP请求的 `script` 标签上监听其 `load` , `error` 和 `readystatechange` 事件。在非IE并且请求成功的前提下，本文的分析只关注 `load` 事件。
+
+### 2. 然后看JSONP的返回中调用 `define` 时做了什么
+
+返回如下：
+
+```JavaScript
+define({"jsonm":"awesome!"})
+```
+
+`define` 函数内部如下：
+
+```JavaScript
+function define(id, deps, factory) {
+  // define(factory)
+  if (arguments.length === 1) {
+    factory = id
+    id = undefined
+  }
+
+  // Parse dependencies according to the module factory code
+  if (!isArray(deps) && isFunction(factory)) {
+    deps = parseDependencies(factory.toString())
+  }
+
+  var data = { id: id, uri: resolve(id), deps: deps, factory: factory }
+
+  // Try to derive uri in IE6-9 for anonymous modules
+  if (!data.uri && doc.attachEvent) {
+    var script = getCurrentScript()
+
+    if (script) {
+      data.uri = script.src
+    }
+    else {
+      log("Failed to derive: " + factory)
+
+      // NOTE: If the id-deriving methods above is failed, then falls back
+      // to use onload event to get the uri
+    }
+  }
+
+  // Emit `define` event, used in plugin-nocache, seajs node version etc
+  emit("define", data)
+
+  data.uri ? save(data.uri, data) :
+      // Save information for "saving" work in the script onload event
+      anonymousModuleData = data
+}
+```
+
+注意环境是非IE。在 `define` 内，最后给 `anonymousModuleData` 赋值，它是作用域链上的一个变量，赋值后它指向的对象可以如下表示：
+
+```JavaScript
+{
+  deps: undefined,
+  factory: {
+    jsonm: "awesome!"
+  },
+  id: undefined,
+  uri: ""
+}
+```
+
+到此，我们看到传给 `define` 的JSON数据保存在 `anoymousModuleData.factory` 中。
+
+### 3. 最后看 `script` 标签的 `load` 事件回调函数
+
+如前所述，`script` 标签内的脚本执行完，会触发标签的 `load` 事件，进入之前绑定的事件回调函数。然后一步步的步入，直到进入在jsonm.html中传给 `seajs.use` 的回调函数中。调用栈如下：
+
+![call-stack-from-node.onload-for-JSONM.png](call-stack-from-node.onload-for-JSONM.png)
+
+至于怎么获取返回的JSON数据：
+
+先在调用栈的 `onRequested` 函数中，访问了 `anonymousModuleData` ，将其中的JSON数据保存到SeaJS缓存的modules哈希表当中。
+
+然后在调用栈从上往下数第二个 `anonymouse function` 中，从缓存的modules哈希表中通过URI获取这个module，进而获取其 `exports` 。在SeaJS中，对于只传了一个JSON数据给 `define` 的module，其 `exports` 就是该JSON数据。
+
+到此，就完成了非IE下使用 `onload` 事件的解决方案。
+
+---
+
+### 路边的风景2：清除引用减少内存泄漏
+
+在 `load` 事件的回调函数中，我们看到如下清除引用来减少内存泄漏：
+
+```JavaScript
+node.onload = node.onerror = node.onreadystatechange = function() {
+  if (READY_STATE_RE.test(node.readyState)) {
+
+    // Ensure only run once and handle memory leak in IE
+    node.onload = node.onerror = node.onreadystatechange = null
+
+    // Remove the script to reduce memory leak
+    if (!isCSS && !configData.debug) {
+      head.removeChild(node)
+    }
+
+    // Dereference the node
+    node = undefined
+
+    callback()
+  }
+}
+```
+
+总结之，对于绑定有事件回调函数的DOM元素，在清除它的时候需要清除的东西至少有如下：
+
+- 清除在元素上的事件回调函数的引用（如果该事件回调函数还被别的变量或对象属性引用，也要清除该变量或对象属性）
+- 把元素从DOM中清除
+- 清除引用该元素的变量或对象属性
