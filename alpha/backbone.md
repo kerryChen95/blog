@@ -1,0 +1,8 @@
+如果在使用extend继承时没有设置constructor，
+
+那么实例化子类时，会先到最顶层的类的构造函数中，比如Backbone.View，在其中调用原型链上最接近子类的initialize方法，
+
+即要是子类上没有设置initialize方法，自动调用父类/祖先类上的initialize方法，要是子类上设置了initialize方法，则调用此方法，而不会自动调用父类/祖先类上的initialize方法。
+
+所以要想在子类实例化时执行父类上的initialize方法，要么子类不设置有initialize方法，要么在子类的initialize方法中通过__super__调用父类上的initialize方法。
+
