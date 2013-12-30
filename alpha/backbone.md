@@ -1,3 +1,5 @@
+## constructor和initialize的区别
+
 如果在使用extend继承时没有设置constructor，
 
 那么实例化子类时，会先到最顶层的类的构造函数中，比如Backbone.View，在其中调用原型链上最接近子类的initialize方法，
